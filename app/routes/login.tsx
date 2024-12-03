@@ -1,6 +1,7 @@
-import type { MetaFunction } from "@remix-run/node";
-import { Form, Link } from "@remix-run/react";
+import { type MetaFunction, json } from "@remix-run/node";
+import { Form, Link, useActionData, useNavigate } from "@remix-run/react";
 import connection from "database/dbConnect";
+import { useEffect, useRef } from "react";
 
 export const meta: MetaFunction = () => {
   return [
@@ -9,55 +10,89 @@ export const meta: MetaFunction = () => {
   ];
 };
 
-export const action = async ({
-  request,
-  response,
-}: {
-  request: Request;
-  response: Response;
-}) => {
+export const action = async ({ request }: { request: Request }) => {
   const formData = await request.formData();
 
-  const userData = {
-    email: formData.get("email"),
-    password: formData.get("password"),
-  };
+  const email = formData.get("email")?.toString();
+  const password = formData.get("password")?.toString();
 
-  if (!userData.email || !userData.password) {
-    return Response.json({ error: "Email or password is required" });
+  if (!email || !password) {
+    return json({ error: "Email and password are required" }, { status: 400 });
   }
 
-  const result = await connection.query("SELECT * FROM users WHERE email = ?", [
-    userData.email,
-  ]);
+  const [result]: any = await connection.query(
+    "SELECT * FROM users WHERE email = ?",
+    [email]
+  );
 
   const user = result[0];
 
-  if (result.length > 0) {
-    if (userData.password === user?.password) {
-      console.log("User logged in successfully.");
+  if (user) {
+    const isPasswordValid = user.password === password;
+
+    if (isPasswordValid) {
+      // Add proper session or token management here
+      return json(
+        {
+          message: "Login successful",
+          user: { id: user.id, email: user.email, name: user.name },
+        },
+        { status: 200 }
+      );
     } else {
-      return Response.json({ error: "Invalid password" });
+      return json({ error: "Invalid password" }, { status: 401 });
     }
   } else {
-    return Response.json({ error: "User is not registered." }, { status: 400 });
+    return json({ error: "User is not registered." }, { status: 404 });
   }
-  return Response.json({
-    success: true,
-    message: "User logged in successfully.",
-  });
 };
 
 export default function Index() {
+  const actionData = useActionData<{
+    error?: string;
+    message?: string;
+    user?: { id: number; email: string; name: string };
+  }>();
+
+  const formRef = useRef<null | HTMLFormElement>(null);
+  const navigate = useNavigate();
+
+  useEffect(() => {
+    if (actionData?.message && actionData.user) {
+      formRef.current?.reset();
+      localStorage.setItem(
+        "user",
+        JSON.stringify({
+          email: actionData.user.email,
+          name: actionData.user.name,
+          id: actionData.user.id,
+        })
+      );
+      navigate(`/profile/${actionData.user.id}`);
+    }
+  }, [actionData]);
+
   return (
     <div className="h-screen w-screen font-bold text-4xl flex justify-center items-center text-white">
       <Form
+        ref={formRef}
         method="post"
         className="flex flex-col w-full max-w-md h-fit backdrop-blur-md rounded-md text-sm font-normal p-6 shadow-lg text-black"
       >
         <h1 className="text-2xl text-white font-semibold text-center mb-4">
           Login
         </h1>
+
+        {actionData?.error && (
+          <div className="font-medium text-center text-sm mb-2 text-red-500">
+            {actionData.error}
+          </div>
+        )}
+        {actionData?.message && (
+          <div className="font-medium text-center text-sm mb-2 text-green-500">
+            {actionData.message}
+          </div>
+        )}
 
         <label htmlFor="email" className="mb-2 text-gray-700">
           Email
